@@ -1,0 +1,75 @@
+{{- if .Values.paymentService.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: payment-service-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: payment-service
+data:
+  PORT: "{{ .Values.paymentService.port }}"
+  DATABASE_URL: "{{ .Values.paymentService.postgresql.url }}"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-service
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: {{ .Values.paymentService.replicas }}
+  selector:
+    matchLabels:
+      app: payment-service
+  template:
+    metadata:
+      labels:
+        app: payment-service
+    spec:
+      imagePullSecrets:
+        - name: harbor-secret
+      containers:
+        - name: payment-service
+          image: "{{ .Values.global.registry }}/{{ .Values.paymentService.image.repository }}:{{ .Values.paymentService.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - containerPort: {{ .Values.paymentService.port }}
+              name: http
+          envFrom:
+            - configMapRef:
+                name: payment-service-config
+            - secretRef:
+                name: payment-service-secret
+          livenessProbe:
+            httpGet:
+              path: /payments
+              port: {{ .Values.paymentService.port }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /payments
+              port: {{ .Values.paymentService.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources:
+            requests:
+              memory: {{ .Values.paymentService.resources.requests.memory }}
+              cpu: {{ .Values.paymentService.resources.requests.cpu }}
+            limits:
+              memory: {{ .Values.paymentService.resources.limits.memory }}
+              cpu: {{ .Values.paymentService.resources.limits.cpu }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-service
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    app: payment-service
+  ports:
+    - port: {{ .Values.paymentService.port }}
+      targetPort: {{ .Values.paymentService.port }}
+      name: http
+  type: ClusterIP
+{{- end }}

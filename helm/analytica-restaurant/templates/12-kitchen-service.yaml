@@ -1,0 +1,77 @@
+{{- if .Values.kitchenService.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kitchen-service-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: kitchen-service
+data:
+  PORT: "{{ .Values.kitchenService.port }}"
+  MONGO_URI: "{{ .Values.kitchenService.mongodb.uri }}"
+  KAFKA_BROKER: "{{ .Values.kitchenService.kafka.brokers }}"
+  MONGO_DB: "kitchen_db"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kitchen-service
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: {{ .Values.kitchenService.replicas }}
+  selector:
+    matchLabels:
+      app: kitchen-service
+  template:
+    metadata:
+      labels:
+        app: kitchen-service
+    spec:
+      imagePullSecrets:
+        - name: harbor-secret
+      containers:
+        - name: kitchen-service
+          image: "{{ .Values.global.registry }}/{{ .Values.kitchenService.image.repository }}:{{ .Values.kitchenService.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - containerPort: {{ .Values.kitchenService.port }}
+              name: http
+          envFrom:
+            - configMapRef:
+                name: kitchen-service-config
+            - secretRef:
+                name: kitchen-service-secret
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.kitchenService.port }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.kitchenService.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources:
+            requests:
+              memory: {{ .Values.kitchenService.resources.requests.memory }}
+              cpu: {{ .Values.kitchenService.resources.requests.cpu }}
+            limits:
+              memory: {{ .Values.kitchenService.resources.limits.memory }}
+              cpu: {{ .Values.kitchenService.resources.limits.cpu }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kitchen-service
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    app: kitchen-service
+  ports:
+    - port: {{ .Values.kitchenService.port }}
+      targetPort: {{ .Values.kitchenService.port }}
+      name: http
+  type: ClusterIP
+{{- end }}

@@ -1,0 +1,410 @@
+services:
+ 
+
+  # MongoDB - Datenbank für Auth, Shopping und Kitchen Service
+  mongo:
+    image: mongo:7.0
+    container_name: analytica-mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE: shopping
+    ports:
+      - "${MONGO_PORT:-27017}:27017"
+    volumes:
+      - mongo-data:/data/db
+      - ./db/init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
+    networks:
+      - analytica-network
+    healthcheck:
+      test: ["CMD","mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # PostgreSQL - Datenbank für Payment Service
+  postgres:
+    image: postgres:16-alpine
+    container_name: analytica-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - analytica-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis - Cache für Delivery Service
+  redis:
+    image: redis:7-alpine
+    container_name: analytica-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --appendfsync everysec
+    networks:
+      - analytica-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Zookeeper - Koordination für Kafka
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: analytica-zookeeper
+    restart: unless-stopped
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+      - zookeeper-logs:/var/lib/zookeeper/log
+    networks:
+      - analytica-network
+    healthcheck:
+      test: ["CMD", "echo", "ruok", "|", "nc", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Kafka - Message Broker für Event-Driven Architektur
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: analytica-kafka
+    restart: unless-stopped
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "${KAFKA_EXTERNAL_PORT:-9092}:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    networks:
+      - analytica-network
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  # Kafka Setup - Erstellt die Kafka Topics
+  kafka-setup:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: analytica-kafka-setup
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command: >
+      bash -c "
+        echo 'Waiting for Kafka to be ready...'
+        sleep 5
+        kafka-topics --bootstrap-server kafka:9092 --create --topic shopping-events --partitions 3 --replication-factor 1 --if-not-exists
+        kafka-topics --bootstrap-server kafka:9092 --create --topic checkout-events --partitions 3 --replication-factor 1 --if-not-exists
+        kafka-topics --bootstrap-server kafka:9092 --create --topic checkout --partitions 3 --replication-factor 1 --if-not-exists
+        kafka-topics --bootstrap-server kafka:9092 --create --topic payment-events --partitions 3 --replication-factor 1 --if-not-exists
+        kafka-topics --bootstrap-server kafka:9092 --create --topic kitchen-events --partitions 3 --replication-factor 1 --if-not-exists
+        kafka-topics --bootstrap-server kafka:9092 --create --topic delivery-events --partitions 3 --replication-factor 1 --if-not-exists
+        echo 'Topics created successfully!'
+      "
+    networks:
+      - analytica-network
+
+  # Kafka UI - Web-Oberfläche für Kafka
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: analytica-kafka-ui
+    restart: unless-stopped
+    ports:
+      - "${KAFKA_UI_PORT:-8090}:8080"
+    depends_on:
+      - kafka
+      - kafka-setup
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    networks:
+      - analytica-network
+
+
+
+  # Auth Service - Benutzer-Authentifizierung mit JWT
+  auth-service:
+    build:
+      context: ./auth-service
+      dockerfile: Dockerfile
+    container_name: analytica-auth-service
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    ports:
+      - "${AUTH_SERVICE_PORT:-8081}:8081"
+    environment:
+      PORT: 8081
+      MONGO_URI: mongodb://${MONGO_AUTH_USER}:${MONGO_AUTH_PASSWORD}@mongo:27017/auth_db?authSource=auth_db
+      MONGO_DB: auth_db
+      MONGO_COLLECTION: users
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRY: 3600
+    networks:
+      - analytica-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Shopping Service - Produktkatalog und Warenkorb
+  shopping-service:
+    build:
+      context: ./shopping-service
+      dockerfile: Dockerfile
+    container_name: analytica-shopping-service
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - "${SHOPPING_SERVICE_PORT:-8080}:8080"
+    environment:
+      SERVER_PORT: 8080
+      MONGO_URI: mongodb://${MONGO_SHOP_USER}:${MONGO_SHOP_PASSWORD}@mongo:27017/shopping?authSource=shopping
+      KAFKA_BROKER: kafka:9092
+      KAFKA_TOPIC: checkout
+      JWT_SECRET: ${JWT_SECRET}
+    networks:
+      - analytica-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Shopping Seed - Erstellt Testprodukte (nur dev Profil)
+  shopping-seed:
+    build:
+      context: ./shopping-service
+      dockerfile: Dockerfile.seed
+    container_name: analytica-shopping-seed
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      MONGO_URI: mongodb://${MONGO_SHOP_USER}:${MONGO_SHOP_PASSWORD}@mongo:27017/shopping?authSource=shopping
+    networks:
+      - analytica-network
+    profiles: ["dev"]
+
+  # Checkout Service - Bestellungsverarbeitung
+  checkout-service:
+    build:
+      context: ./checkout-service
+      dockerfile: Dockerfile
+    container_name: analytica-checkout-service
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "${CHECKOUT_SERVICE_PORT:-8082}:8082"
+    environment:
+      PORT: 8082
+      KAFKA_BROKERS: kafka:9092
+      KAFKA_CHECKOUT_TOPIC: checkout
+      KAFKA_ORDER_TOPIC: checkout-events
+      KAFKA_GROUP_ID: checkout-group
+    networks:
+      - analytica-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8082/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Payment Service - Zahlungsabwicklung
+  payment-service:
+    build:
+      context: ./payment-service
+      dockerfile: Dockerfile
+    container_name: analytica-payment-service
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - "${PAYMENT_SERVICE_PORT:-8083}:8083"
+    environment:
+      PORT: 8083
+      DATABASE_URL: host=postgres user=${POSTGRES_USER} password=${POSTGRES_PASSWORD} dbname=${POSTGRES_DB} port=5432 sslmode=disable TimeZone=UTC
+      KAFKA_BROKER: kafka:9092
+      KAFKA_TOPIC: checkout-events
+      KAFKA_GROUP_ID: payment-group
+    networks:
+      - analytica-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8083/payments"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Kitchen Service - Küchenverwaltung und Bestellstatus
+  kitchen-service:
+    build:
+      context: ./kitchen-service
+      dockerfile: Dockerfile
+    container_name: analytica-kitchen-service
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - "${KITCHEN_SERVICE_PORT:-8084}:8084"
+    environment:
+      PORT: 8084
+      MONGO_URI: mongodb://${MONGO_KITCHEN_USER}:${MONGO_KITCHEN_PASSWORD}@mongo:27017/kitchen_db?authSource=kitchen_db
+      KAFKA_BROKER: kafka:9092
+      KAFKA_TOPIC: kitchen-events
+      KAFKA_GROUP_ID: kitchen-group
+    networks:
+      - analytica-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8084/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Delivery Service - Lieferungsverfolgung
+  delivery-service:
+    build:
+      context: ./delivery-service
+      dockerfile: Dockerfile
+    container_name: analytica-delivery-service
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - "${DELIVERY_SERVICE_PORT:-8085}:8085"
+    environment:
+      PORT: 8085
+      REDIS_ADDR: redis:6379
+      KAFKA_BROKER: kafka:9092
+      KAFKA_TOPIC: delivery-events
+      KAFKA_GROUP_ID: delivery-group
+    networks:
+      - analytica-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8085/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ==================== Frontend & API Gateway ====================
+
+  # Frontend - Vue.js Anwendung
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: analytica-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    networks:
+      - analytica-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Nginx - API Gateway und Reverse Proxy
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: analytica-nginx
+    restart: unless-stopped
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      shopping-service:
+        condition: service_healthy
+      checkout-service:
+        condition: service_started
+      payment-service:
+        condition: service_healthy
+      kitchen-service:
+        condition: service_healthy
+      delivery-service:
+        condition: service_started
+    ports:
+      - "${NGINX_PORT:-80}:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - analytica-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+networks:
+  analytica-network:
+    driver: bridge
+    name: analytica-network
+
+volumes:
+  mongo-data:
+    name: analytica-mongo-data
+  postgres-data:
+    name: analytica-postgres-data
+  redis-data:
+    name: analytica-redis-data
+  zookeeper-data:
+    name: analytica-zookeeper-data
+  zookeeper-logs:
+    name: analytica-zookeeper-logs
+  kafka-data:
+    name: analytica-kafka-data

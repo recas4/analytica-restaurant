@@ -1,0 +1,24 @@
+# Environment variables
+.env
+
+# Docker volumes (falls lokal gemountet)
+data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# compiled binaries
+checkout-service/checkout-service
+*/bin/

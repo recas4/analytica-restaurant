@@ -1,0 +1,221 @@
+# Global configuration
+global:
+  environment: development
+  registry: case-projects.rz.fh-ingolstadt.de
+  imagePullPolicy: IfNotPresent
+
+# MongoDB Configuration
+mongodb:
+  enabled: true
+  auth:
+    rootUser: root
+    rootPassword: rootpass
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClass: standard
+  image:
+    repository: mongo
+    tag: "7.0"
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 512Mi
+      cpu: 500m
+
+kafka:
+  enabled: true
+  fullnameOverride: kafka
+
+# Auth Service Configuration
+authService:
+  enabled: true
+  replicas: 2
+  port: 8081
+  image:
+    repository: cnd-qeb2708/auth-service
+    tag: latest
+  jwt:
+    secret: QT+7zJniFR6Jxskp6EcdNftDf+zLKPSpf7HWUUPmEPQ=
+    expirySeconds: 3600
+  mongodb:
+    uri: "mongodb://root:rootpass@mongodb-0:27017/auth_db?authSource=admin&directConnection=true"
+  resources:
+    requests:
+      memory: 64Mi
+      cpu: 50m
+    limits:
+      memory: 128Mi
+      cpu: 200m
+
+# Shopping Service Configuration
+shoppingService:
+  enabled: true
+  replicas: 2
+  port: 8080
+  image:
+    repository: cnd-qeb2708/shopping-service
+    tag: latest
+  jwt:
+    secret: QT+7zJniFR6Jxskp6EcdNftDf+zLKPSpf7HWUUPmEPQ=
+    expirySeconds: 3600
+  mongodb:
+    uri: "mongodb://root:rootpass@mongodb-0:27017/shopping_db?authSource=admin&directConnection=true"
+  kafka:
+    brokers: "kafka.default.svc.cluster.local:9092"
+  resources:
+    requests:
+      memory: 64Mi
+      cpu: 50m
+    limits:
+      memory: 128Mi
+      cpu: 200m
+
+# Checkout Service Configuration
+checkoutService:
+  enabled: true
+  replicas: 2
+  port: 8082
+  image:
+    repository: cnd-qeb2708/checkout-service
+    tag: latest
+  jwt:
+    secret: QT+7zJniFR6Jxskp6EcdNftDf+zLKPSpf7HWUUPmEPQ=
+    expirySeconds: 3600
+  mongodb:
+    uri: "mongodb://root:rootpass@mongodb-0:27017/checkout_db?authSource=admin&directConnection=true"
+  kafka:
+    brokers: "kafka.default.svc.cluster.local:9092"
+  resources:
+    requests:
+      memory: 64Mi
+      cpu: 50m
+    limits:
+      memory: 128Mi
+      cpu: 200m
+
+# PostgreSQL Configuration
+postgresql:
+  enabled: true
+  auth:
+    user: postgres
+    password: postgrespass
+    database: paymentdb
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClass: standard
+  image:
+    repository: postgres
+    tag: "16"
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 512Mi
+      cpu: 500m
+
+# Redis Configuration
+redis:
+  enabled: true
+  image:
+    repository: redis
+    tag: "7-alpine"
+  resources:
+    requests:
+      memory: 128Mi
+      cpu: 50m
+    limits:
+      memory: 256Mi
+      cpu: 200m
+
+# Payment Service Configuration
+paymentService:
+  enabled: true
+  replicas: 2
+  port: 8083
+  image:
+    repository: cnd-qeb2708/payment-service
+    tag: latest
+  jwt:
+    secret: QT+7zJniFR6Jxskp6EcdNftDf+zLKPSpf7HWUUPmEPQ=
+    expirySeconds: 3600
+  postgresql:
+    url: "host=postgresql-0 user=postgres password=postgrespass dbname=paymentdb port=5432 sslmode=disable TimeZone=UTC"
+  resources:
+    requests:
+      memory: 64Mi
+      cpu: 50m
+    limits:
+      memory: 128Mi
+      cpu: 200m
+
+# Kitchen Service Configuration
+kitchenService:
+  enabled: true
+  replicas: 2
+  port: 8084
+  image:
+    repository: cnd-qeb2708/kitchen-service
+    tag: latest
+  jwt:
+    secret: QT+7zJniFR6Jxskp6EcdNftDf+zLKPSpf7HWUUPmEPQ=
+    expirySeconds: 3600
+  mongodb:
+    uri: "mongodb://root:rootpass@mongodb-0:27017/kitchen_db?authSource=admin&directConnection=true"
+  kafka:
+    brokers: "kafka.default.svc.cluster.local:9092"
+  resources:
+    requests:
+      memory: 64Mi
+      cpu: 50m
+    limits:
+      memory: 128Mi
+      cpu: 200m
+
+# Delivery Service Configuration
+deliveryService:
+  enabled: true
+  replicas: 2
+  port: 8085
+  image:
+    repository: cnd-qeb2708/delivery-service
+    tag: latest
+  jwt:
+    secret: QT+7zJniFR6Jxskp6EcdNftDf+zLKPSpf7HWUUPmEPQ=
+    expirySeconds: 3600
+  redis:
+    addr: "redis:6379"
+  resources:
+    requests:
+      memory: 64Mi
+      cpu: 50m
+    limits:
+      memory: 128Mi
+      cpu: 200m
+
+# Frontend Configuration
+frontend:
+  enabled: true
+  replicas: 1
+  nodePort: 30080
+  image:
+    repository: cnd-qeb2708/frontend
+    tag: latest
+  imagePullPolicy: IfNotPresent
+  resources:
+    requests:
+      memory: 32Mi
+      cpu: 10m
+    limits:
+      memory: 64Mi
+      cpu: 100m
+
+# Ingress Configuration
+ingress:
+  enabled: true
+  className: nginx
+  host: localhost

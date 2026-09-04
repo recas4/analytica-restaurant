@@ -1,0 +1,77 @@
+{{- if .Values.shoppingService.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shopping-service-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: shopping-service
+data:
+  SERVER_PORT: "{{ .Values.shoppingService.port }}"
+  MONGO_URI: "{{ .Values.shoppingService.mongodb.uri }}"
+  KAFKA_BROKER: "{{ .Values.shoppingService.kafka.brokers }}"
+  MONGO_DB: "shopping"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shopping-service
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: {{ .Values.shoppingService.replicas }}
+  selector:
+    matchLabels:
+      app: shopping-service
+  template:
+    metadata:
+      labels:
+        app: shopping-service
+    spec:
+      imagePullSecrets:
+        - name: harbor-secret
+      containers:
+        - name: shopping-service
+          image: "{{ .Values.global.registry }}/{{ .Values.shoppingService.image.repository }}:{{ .Values.shoppingService.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - containerPort: {{ .Values.shoppingService.port }}
+              name: http
+          envFrom:
+            - configMapRef:
+                name: shopping-service-config
+            - secretRef:
+                name: shopping-service-secret
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.shoppingService.port }}
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.shoppingService.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources:
+            requests:
+              memory: {{ .Values.shoppingService.resources.requests.memory }}
+              cpu: {{ .Values.shoppingService.resources.requests.cpu }}
+            limits:
+              memory: {{ .Values.shoppingService.resources.limits.memory }}
+              cpu: {{ .Values.shoppingService.resources.limits.cpu }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: shopping-service
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    app: shopping-service
+  ports:
+    - port: {{ .Values.shoppingService.port }}
+      targetPort: {{ .Values.shoppingService.port }}
+      name: http
+  type: ClusterIP
+{{- end }}

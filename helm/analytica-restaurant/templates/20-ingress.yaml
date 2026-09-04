@@ -1,0 +1,102 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: analytica-ingress
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+  - host: {{ .Values.ingress.host }}
+    http:
+      paths:
+      # Auth Service
+      {{- if .Values.authService.enabled }}
+      - path: /api/auth(/|$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: auth-service
+            port:
+              number: {{ .Values.authService.port }}
+      {{- end }}
+
+      # Shopping Service
+      {{- if .Values.shoppingService.enabled }}
+      - path: /api/shopping(/|$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: shopping-service
+            port:
+              number: {{ .Values.shoppingService.port }}
+      {{- end }}
+
+      # Checkout Service
+      {{- if .Values.checkoutService.enabled }}
+      - path: /api/checkout(/|$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: checkout-service
+            port:
+              number: {{ .Values.checkoutService.port }}
+      {{- end }}
+
+      # Payment Service
+      {{- if .Values.paymentService.enabled }}
+      - path: /api/payment(/|$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: payment-service
+            port:
+              number: {{ .Values.paymentService.port }}
+      {{- end }}
+
+      # Kitchen Service (needs /kitchen prefix preserved)
+      {{- if .Values.kitchenService.enabled }}
+      - path: /api(/|$)(kitchen.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: kitchen-service
+            port:
+              number: {{ .Values.kitchenService.port }}
+      {{- end }}
+
+      # Delivery Service
+      {{- if .Values.deliveryService.enabled }}
+      - path: /api/delivery(/|$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: delivery-service
+            port:
+              number: {{ .Values.deliveryService.port }}
+      {{- end }}
+
+      # Kafka UI
+      {{- if .Values.kafka.enabled }}
+      - path: /kafka-ui(/|$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: kafka-ui
+            port:
+              number: 8080
+      {{- end }}
+
+      # Frontend - catch all (must be last!)
+      {{- if .Values.frontend.enabled }}
+      - path: /()(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: frontend
+            port:
+              number: 80
+      {{- end }}
+{{- end }}

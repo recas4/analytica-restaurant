@@ -1,0 +1,66 @@
+{{- if .Values.checkoutService.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: checkout-service-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: checkout-service
+data:
+  PORT: "{{ .Values.checkoutService.port }}"
+  KAFKA_BROKERS: "{{ .Values.checkoutService.kafka.brokers }}"
+  KAFKA_CHECKOUT_TOPIC: "checkout"
+  KAFKA_ORDER_TOPIC: "checkout-events"
+  KAFKA_GROUP_ID: "checkout-group"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout-service
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: {{ .Values.checkoutService.replicas }}
+  selector:
+    matchLabels:
+      app: checkout-service
+  template:
+    metadata:
+      labels:
+        app: checkout-service
+    spec:
+      imagePullSecrets:
+        - name: harbor-secret
+      containers:
+        - name: checkout-service
+          image: "{{ .Values.global.registry }}/{{ .Values.checkoutService.image.repository }}:{{ .Values.checkoutService.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - containerPort: {{ .Values.checkoutService.port }}
+              name: http
+          envFrom:
+            - configMapRef:
+                name: checkout-service-config
+            - secretRef:
+                name: checkout-service-secret
+          resources:
+            requests:
+              memory: {{ .Values.checkoutService.resources.requests.memory }}
+              cpu: {{ .Values.checkoutService.resources.requests.cpu }}
+            limits:
+              memory: {{ .Values.checkoutService.resources.limits.memory }}
+              cpu: {{ .Values.checkoutService.resources.limits.cpu }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: checkout-service
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    app: checkout-service
+  ports:
+    - port: {{ .Values.checkoutService.port }}
+      targetPort: {{ .Values.checkoutService.port }}
+      name: http
+  type: ClusterIP
+{{- end }}

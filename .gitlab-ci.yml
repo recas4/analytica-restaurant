@@ -1,0 +1,448 @@
+# =============================================================================
+# GitLab CI/CD Pipeline - Analytica Restaurant
+# Build: Alle Services + Frontend | Test: Auth + Payment | Push: Harbor Registry
+# =============================================================================
+
+stages:
+  - prepare
+  - build
+  - test
+  - push
+
+# =============================================================================
+# Global Variables & Cache
+# =============================================================================
+variables:
+  GOPROXY: "https://proxy.golang.org,direct"
+  GOFLAGS: "-mod=readonly"
+  CGO_ENABLED: "0"
+  # Harbor Registry (Values from GitLab CI/CD Variables)
+  # HARBOR_URL: https://case-projects.rz.fh-ingolstadt.de
+  # HARBOR_PROJECT: cnd-qeb2708
+  # HARBOR_ROBOT_NAME: (set in GitLab)
+  # HARBOR_ROBOT_TOKEN: (set in GitLab)
+  # HARBOR_IMAGE_PREFIX: case-projects.rz.fh-ingolstadt.de/cnd-qeb2708
+
+# Global cache for Go modules
+.go_cache: &go_cache
+  key: ${CI_COMMIT_REF_SLUG}-go-modules
+  paths:
+    - .go/pkg/mod/
+  policy: pull-push
+
+# =============================================================================
+# Templates
+# =============================================================================
+
+.go_template: &go_template
+  image: golang:1.24-alpine
+  before_script:
+    - apk add --no-cache git
+    - mkdir -p .go
+    - export GOPATH="$CI_PROJECT_DIR/.go"
+    - export PATH="$GOPATH/bin:$PATH"
+
+prepare:dependencies:
+  stage: prepare
+  <<: *go_template
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}-go-deps
+    paths:
+      - .go/pkg/mod/
+    policy: pull-push
+  script:
+    - cd auth-service && go mod download && cd ..
+    - cd payment-service && go mod download && cd ..
+    - cd shopping-service && go mod download && cd ..
+    - cd checkout-service && go mod download && cd ..
+    - cd kitchen-service && go mod download && cd ..
+    - cd delivery-service && go mod download && cd ..
+  rules:
+    - changes:
+        - "**/go.mod"
+        - "**/go.sum"
+        - auth-service/**/*
+        - payment-service/**/*
+        - shopping-service/**/*
+        - checkout-service/**/*
+        - kitchen-service/**/*
+        - delivery-service/**/*
+
+# =============================================================================
+# BUILD STAGE - All Services
+# =============================================================================
+
+build:auth-service:
+  stage: build
+  <<: *go_template
+  needs:
+    - job: prepare:dependencies
+      optional: true
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}-go-deps
+    paths:
+      - .go/pkg/mod/
+    policy: pull
+  script:
+    - cd auth-service
+    - go build -ldflags="-s -w" -o bin/auth-service ./cmd/main.go
+  artifacts:
+    paths:
+      - auth-service/bin/
+    expire_in: 1 hour
+  rules:
+    - changes:
+        - auth-service/**/*
+
+build:payment-service:
+  stage: build
+  <<: *go_template
+  needs:
+    - job: prepare:dependencies
+      optional: true
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}-go-deps
+    paths:
+      - .go/pkg/mod/
+    policy: pull
+  script:
+    - cd payment-service
+    - go build -ldflags="-s -w" -o bin/payment-service ./src/main.go
+  artifacts:
+    paths:
+      - payment-service/bin/
+    expire_in: 1 hour
+  rules:
+    - changes:
+        - payment-service/**/*
+
+build:shopping-service:
+  stage: build
+  <<: *go_template
+  needs:
+    - job: prepare:dependencies
+      optional: true
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}-go-deps
+    paths:
+      - .go/pkg/mod/
+    policy: pull
+  script:
+    - cd shopping-service
+    - go build -ldflags="-s -w" -o bin/shopping-service ./cmd/main.go
+  artifacts:
+    paths:
+      - shopping-service/bin/
+    expire_in: 1 hour
+  rules:
+    - changes:
+        - shopping-service/**/*
+
+build:checkout-service:
+  stage: build
+  <<: *go_template
+  needs:
+    - job: prepare:dependencies
+      optional: true
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}-go-deps
+    paths:
+      - .go/pkg/mod/
+    policy: pull
+  script:
+    - cd checkout-service
+    - go build -ldflags="-s -w" -o bin/checkout-service ./cmd/main.go
+  artifacts:
+    paths:
+      - checkout-service/bin/
+    expire_in: 1 hour
+  rules:
+    - changes:
+        - checkout-service/**/*
+
+build:kitchen-service:
+  stage: build
+  <<: *go_template
+  needs:
+    - job: prepare:dependencies
+      optional: true
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}-go-deps
+    paths:
+      - .go/pkg/mod/
+    policy: pull
+  script:
+    - cd kitchen-service
+    - go build -ldflags="-s -w" -o bin/kitchen-service ./src/main.go
+  artifacts:
+    paths:
+      - kitchen-service/bin/
+    expire_in: 1 hour
+  rules:
+    - changes:
+        - kitchen-service/**/*
+
+build:delivery-service:
+  stage: build
+  <<: *go_template
+  needs:
+    - job: prepare:dependencies
+      optional: true
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}-go-deps
+    paths:
+      - .go/pkg/mod/
+    policy: pull
+  script:
+    - cd delivery-service
+    - go build -ldflags="-s -w" -o bin/delivery-service ./src/main.go
+  artifacts:
+    paths:
+      - delivery-service/bin/
+    expire_in: 1 hour
+  rules:
+    - changes:
+        - delivery-service/**/*
+
+build:frontend:
+  stage: build
+  image: node:20-alpine
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}-npm
+    paths:
+      - frontend/node_modules/
+    policy: pull-push
+  script:
+    - cd frontend
+    - npm ci
+    - npm run build
+  artifacts:
+    paths:
+      - frontend/dist/
+    expire_in: 1 hour
+  rules:
+    - changes:
+        - frontend/**/*
+
+# =============================================================================
+# TEST STAGE
+# =============================================================================
+
+test:auth-service:
+  stage: test
+  <<: *go_template
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}-go-deps
+    paths:
+      - .go/pkg/mod/
+    policy: pull
+  needs:
+    - job: build:auth-service
+      optional: true
+  script:
+    - cd auth-service
+    - go test -v -coverprofile=coverage.out -covermode=atomic ./...
+    - go tool cover -func=coverage.out | tail -1
+  coverage: '/total:\s+\(statements\)\s+(\d+\.\d+)%/'
+  artifacts:
+    paths:
+      - auth-service/coverage.out
+    expire_in: 1 week
+  rules:
+    - changes:
+        - auth-service/**/*
+
+test:payment-service:
+  stage: test
+  <<: *go_template
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}-go-deps
+    paths:
+      - .go/pkg/mod/
+    policy: pull
+  needs:
+    - job: build:payment-service
+      optional: true
+  script:
+    - cd payment-service
+    - go test -v -coverprofile=coverage.out -covermode=atomic ./...
+    - go tool cover -func=coverage.out | tail -1
+  coverage: '/total:\s+\(statements\)\s+(\d+\.\d+)%/'
+  artifacts:
+    paths:
+      - payment-service/coverage.out
+    expire_in: 1 week
+  rules:
+    - changes:
+        - payment-service/**/*
+
+# =============================================================================
+# PUSH STAGE - Harbor Registry
+
+
+.docker_template: &docker_template
+  image: docker:24-cli
+  services:
+    - docker:24-dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+  before_script:
+    - echo "$HARBOR_ROBOT_TOKEN" | docker login $HARBOR_URL -u $HARBOR_ROBOT_NAME --password-stdin
+
+push:auth-service:
+  stage: push
+  <<: *docker_template
+  needs:
+    - job: build:auth-service
+      optional: true
+    - job: test:auth-service
+      optional: true
+  script:
+    - docker pull $HARBOR_IMAGE_PREFIX/auth-service:latest || true
+    - |
+      docker build \
+        --cache-from $HARBOR_IMAGE_PREFIX/auth-service:latest \
+        --build-arg BUILDKIT_INLINE_CACHE=1 \
+        -t $HARBOR_IMAGE_PREFIX/auth-service:$CI_COMMIT_SHORT_SHA \
+        -t $HARBOR_IMAGE_PREFIX/auth-service:latest \
+        ./auth-service
+    - docker push $HARBOR_IMAGE_PREFIX/auth-service:$CI_COMMIT_SHORT_SHA
+    - docker push $HARBOR_IMAGE_PREFIX/auth-service:latest
+  rules:
+    - if: $CI_COMMIT_BRANCH
+      changes:
+        - auth-service/**/*
+
+push:payment-service:
+  stage: push
+  <<: *docker_template
+  needs:
+    - job: build:payment-service
+      optional: true
+    - job: test:payment-service
+      optional: true
+  script:
+    - docker pull $HARBOR_IMAGE_PREFIX/payment-service:latest || true
+    - |
+      docker build \
+        --cache-from $HARBOR_IMAGE_PREFIX/payment-service:latest \
+        --build-arg BUILDKIT_INLINE_CACHE=1 \
+        -t $HARBOR_IMAGE_PREFIX/payment-service:$CI_COMMIT_SHORT_SHA \
+        -t $HARBOR_IMAGE_PREFIX/payment-service:latest \
+        ./payment-service
+    - docker push $HARBOR_IMAGE_PREFIX/payment-service:$CI_COMMIT_SHORT_SHA
+    - docker push $HARBOR_IMAGE_PREFIX/payment-service:latest
+  rules:
+    - if: $CI_COMMIT_BRANCH
+      changes:
+        - payment-service/**/*
+
+push:shopping-service:
+  stage: push
+  <<: *docker_template
+  needs:
+    - job: build:shopping-service
+      optional: true
+  script:
+    - docker pull $HARBOR_IMAGE_PREFIX/shopping-service:latest || true
+    - |
+      docker build \
+        --cache-from $HARBOR_IMAGE_PREFIX/shopping-service:latest \
+        --build-arg BUILDKIT_INLINE_CACHE=1 \
+        -t $HARBOR_IMAGE_PREFIX/shopping-service:$CI_COMMIT_SHORT_SHA \
+        -t $HARBOR_IMAGE_PREFIX/shopping-service:latest \
+        ./shopping-service
+    - docker push $HARBOR_IMAGE_PREFIX/shopping-service:$CI_COMMIT_SHORT_SHA
+    - docker push $HARBOR_IMAGE_PREFIX/shopping-service:latest
+  rules:
+    - if: $CI_COMMIT_BRANCH
+      changes:
+        - shopping-service/**/*
+
+push:checkout-service:
+  stage: push
+  <<: *docker_template
+  needs:
+    - job: build:checkout-service
+      optional: true
+  script:
+    - docker pull $HARBOR_IMAGE_PREFIX/checkout-service:latest || true
+    - |
+      docker build \
+        --cache-from $HARBOR_IMAGE_PREFIX/checkout-service:latest \
+        --build-arg BUILDKIT_INLINE_CACHE=1 \
+        -t $HARBOR_IMAGE_PREFIX/checkout-service:$CI_COMMIT_SHORT_SHA \
+        -t $HARBOR_IMAGE_PREFIX/checkout-service:latest \
+        ./checkout-service
+    - docker push $HARBOR_IMAGE_PREFIX/checkout-service:$CI_COMMIT_SHORT_SHA
+    - docker push $HARBOR_IMAGE_PREFIX/checkout-service:latest
+  rules:
+    - if: $CI_COMMIT_BRANCH
+      changes:
+        - checkout-service/**/*
+
+push:kitchen-service:
+  stage: push
+  <<: *docker_template
+  needs:
+    - job: build:kitchen-service
+      optional: true
+  script:
+    - docker pull $HARBOR_IMAGE_PREFIX/kitchen-service:latest || true
+    - |
+      docker build \
+        --cache-from $HARBOR_IMAGE_PREFIX/kitchen-service:latest \
+        --build-arg BUILDKIT_INLINE_CACHE=1 \
+        -t $HARBOR_IMAGE_PREFIX/kitchen-service:$CI_COMMIT_SHORT_SHA \
+        -t $HARBOR_IMAGE_PREFIX/kitchen-service:latest \
+        ./kitchen-service
+    - docker push $HARBOR_IMAGE_PREFIX/kitchen-service:$CI_COMMIT_SHORT_SHA
+    - docker push $HARBOR_IMAGE_PREFIX/kitchen-service:latest
+  rules:
+    - if: $CI_COMMIT_BRANCH
+      changes:
+        - kitchen-service/**/*
+
+push:delivery-service:
+  stage: push
+  <<: *docker_template
+  needs:
+    - job: build:delivery-service
+      optional: true
+  script:
+    - docker pull $HARBOR_IMAGE_PREFIX/delivery-service:latest || true
+    - |
+      docker build \
+        --cache-from $HARBOR_IMAGE_PREFIX/delivery-service:latest \
+        --build-arg BUILDKIT_INLINE_CACHE=1 \
+        -t $HARBOR_IMAGE_PREFIX/delivery-service:$CI_COMMIT_SHORT_SHA \
+        -t $HARBOR_IMAGE_PREFIX/delivery-service:latest \
+        ./delivery-service
+    - docker push $HARBOR_IMAGE_PREFIX/delivery-service:$CI_COMMIT_SHORT_SHA
+    - docker push $HARBOR_IMAGE_PREFIX/delivery-service:latest
+  rules:
+    - if: $CI_COMMIT_BRANCH
+      changes:
+        - delivery-service/**/*
+
+push:frontend:
+  stage: push
+  <<: *docker_template
+  needs:
+    - job: build:frontend
+      optional: true
+  script:
+    - docker pull $HARBOR_IMAGE_PREFIX/frontend:latest || true
+    - |
+      docker build \
+        --cache-from $HARBOR_IMAGE_PREFIX/frontend:latest \
+        --build-arg BUILDKIT_INLINE_CACHE=1 \
+        -t $HARBOR_IMAGE_PREFIX/frontend:$CI_COMMIT_SHORT_SHA \
+        -t $HARBOR_IMAGE_PREFIX/frontend:latest \
+        ./frontend
+    - docker push $HARBOR_IMAGE_PREFIX/frontend:$CI_COMMIT_SHORT_SHA
+    - docker push $HARBOR_IMAGE_PREFIX/frontend:latest
+  rules:
+    - if: $CI_COMMIT_BRANCH
+      changes:
+        - frontend/**/*

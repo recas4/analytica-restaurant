@@ -1,0 +1,9 @@
+apiVersion: v2
+name: analytica-restaurant
+description: A Helm chart for Kubernetes microservices deployment
+type: application
+version: 1.0.0
+appVersion: "1.0"
+maintainers:
+  - name: Arnold, Qendrim, Kaisheng
+    

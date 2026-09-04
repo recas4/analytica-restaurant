@@ -1,0 +1,59 @@
+{{- if .Values.deliveryService.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: delivery-service-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: delivery-service
+data:
+  REDIS_ADDR: "{{ .Values.deliveryService.redis.addr }}"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: delivery-service
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: {{ .Values.deliveryService.replicas }}
+  selector:
+    matchLabels:
+      app: delivery-service
+  template:
+    metadata:
+      labels:
+        app: delivery-service
+    spec:
+      imagePullSecrets:
+        - name: harbor-secret
+      containers:
+        - name: delivery-service
+          image: "{{ .Values.global.registry }}/{{ .Values.deliveryService.image.repository }}:{{ .Values.deliveryService.image.tag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - containerPort: {{ .Values.deliveryService.port }}
+          envFrom:
+            - configMapRef:
+                name: delivery-service-config
+            - secretRef:
+                name: delivery-service-secret
+          resources:
+            requests:
+              memory: {{ .Values.deliveryService.resources.requests.memory }}
+              cpu: {{ .Values.deliveryService.resources.requests.cpu }}
+            limits:
+              memory: {{ .Values.deliveryService.resources.limits.memory }}
+              cpu: {{ .Values.deliveryService.resources.limits.cpu }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: delivery-service
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    app: delivery-service
+  ports:
+    - port: {{ .Values.deliveryService.port }}
+      targetPort: {{ .Values.deliveryService.port }}
+{{- end }}
